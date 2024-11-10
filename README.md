@@ -6,4 +6,5 @@ I plan to add:
 + VPIP
 + 3Bet Freq
 + XR Freq
-+ More
++ Multi file support
++ More . . . 
