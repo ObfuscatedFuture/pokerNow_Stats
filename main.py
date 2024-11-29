@@ -3,6 +3,7 @@ import pandas as pd
 import re as re
 import numpy as np
 from dateutil import parser
+import matplotlib.pyplot as plt
 
 
 def main(arg):
@@ -56,7 +57,6 @@ def main(arg):
     data['at'] = pd.to_datetime(data['at'])
     data['amount'] = data['amount'].astype(float)
 
-    print(data.dtypes)
     # Potential actions list:
     # checks, calls, raises, bets, folds
     # shows, collects, return, posts
@@ -80,7 +80,6 @@ def main(arg):
 
     combined_players = combined_players.sort_values(by="player_nickname", ascending=True)
 
-    print(combined_players.dtypes)
     player_names = combined_players['player_nickname'].tolist()
     starts = []
     ends = []
@@ -103,13 +102,13 @@ def main(arg):
         recent = None
         playerData.sort_values(by=['hand_count'], inplace=True, ascending=True)
 
+
+        # TODO make this code more efficient and add time tracking
         for index, row in playerData.iterrows():
             if row['action'] == 'joins' and recent is None:
                 recent = row['hand_count']
-                # timeStart = parser.isoparse(row['order'])
             elif row['action'] == 'leaves' and recent is not None:
                 difference = row['hand_count'] - recent
-                # totalTime = parser.isoparse(row['order']) - timeStart
                 handsPlayed += difference
                 recent = None
 
@@ -117,13 +116,60 @@ def main(arg):
         ends.append(end)
         played.append(handsPlayed)
 
-        print(player_names[i] + " joined at hand " + str(starts[i]) + " and left at hand " + str(ends[i]) + " and played " + str(played[i]) + " hands")
+        # Make sure this works
+        # print(player_names[i] + " joined at hand " + str(starts[i]) + " and left at hand " + str(ends[i]) + " and played " + str(played[i]) + " hands")
 
-        # TODO add hands Played column to modified_ledger.csv
         # TODO add time played column to modified_ledger.csv
         # TODO add vpip? column to modified_ledger.csv
 
-        # idk ill come up with more stuff to add later
+
+    def process_stacks(row):
+        if row.startswith("Player stacks:"):
+            stacks = row[len("Player stacks:"):].strip()
+            players = stacks.split(" | ")
+            processed = []
+            for player in players:
+                parts = player.split('"')
+                position = parts[0].strip()
+                name = parts[1]
+                stack = float(parts[2].strip()[1:-1])  # Extract and convert stack value
+                processed.append((position, name, stack))
+            return processed
+        return None
+
+    # Stacks over time charting
+    # implement profit tracking
+    # implement vpip
+    stack_history = data["entry"].apply(process_stacks)
+    stack_rows = stack_history.explode().dropna()
+
+    stack_info = pd.DataFrame(
+    stack_rows.tolist(), columns=['Position', 'Player', 'Stack']
+    )
+    stack_info = pd.concat([
+        data[['hand_count']].loc[stack_rows.index].reset_index(drop=True),
+        stack_info
+    ], axis=1)
+    stack_info = stack_info.query("Player < 'ffffffffff'")
+    # stack_info.to_csv('stack_info.csv', index = False)
+
+    plt.figure(figsize=(10, 6))
+
+    # Group by player and plot
+    for player, group in stack_info.groupby('Player'):
+        plt.plot(group['hand_count'], group['Stack'], marker='o', label=player)
+
+    # Add labels, title, and legend
+    plt.ylabel('Stack', fontsize=14)
+    plt.xlabel('Hand Count', fontsize=14)
+    plt.title('Player Stacks vs. Hand Count', fontsize=16)
+    plt.legend(title="Player", bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+    plt.grid(True)
+    plt.tight_layout()
+
+    # Show the plot
+    plt.show()
+
     series = pd.Series(played)
     combined_players["Hands_Played"] = series
     #Currently broken
