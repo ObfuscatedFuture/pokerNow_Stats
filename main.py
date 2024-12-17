@@ -87,42 +87,38 @@ def main(arg):
     for i in range(len(player_names)):
         regex = r'' + player_names[i] + ''
 
-        handsPlayed = 0
+        hands_played = 0
 
-        playerData = data[data['player_name'].str.contains(regex)]
-        end = playerData.loc[playerData['action'] == 'leaves', 'hand_count'].astype(int).max()
-        start = playerData['hand_count'].astype(int).min()+1
+        player_data = data[data['player_name'].str.contains(regex)]
+        end = player_data.loc[player_data['action'] == 'leaves', 'hand_count'].astype(int).max()
+        start = player_data['hand_count'].astype(int).min()+1
 
         if math.isnan(end):
-            end = playerData['hand_count'].astype(int).max()
-            handsPlayed = end-start
+            end = player_data['hand_count'].astype(int).max()
+            hands_played = end-start
 
-        playerData = playerData[playerData['action'].isin(['joins', 'leaves'])]
+        player_data = player_data[player_data['action'].isin(['joins', 'leaves'])]
 
         recent = None
-        playerData.sort_values(by=['hand_count'], inplace=True, ascending=True)
-
+        player_data.sort_values(by=['hand_count'], inplace=True, ascending=True)
 
         # TODO make this code more efficient and add time tracking
-        for index, row in playerData.iterrows():
+        for index, row in player_data.iterrows():
             if row['action'] == 'joins' and recent is None:
                 recent = row['hand_count']
             elif row['action'] == 'leaves' and recent is not None:
                 difference = row['hand_count'] - recent
-                handsPlayed += difference
+                hands_played += difference
                 recent = None
 
         starts.append(start)
         ends.append(end)
-        played.append(handsPlayed)
-
-        # Make sure this works
-        # print(player_names[i] + " joined at hand " + str(starts[i]) + " and left at hand " + str(ends[i]) + " and played " + str(played[i]) + " hands")
+        played.append(hands_played)
 
         # TODO add time played column to modified_ledger.csv
         # TODO add vpip? column to modified_ledger.csv
 
-
+    # Processing for stack_info dataFrame
     def process_stacks(row):
         if row.startswith("Player stacks:"):
             stacks = row[len("Player stacks:"):].strip()
@@ -172,11 +168,11 @@ def main(arg):
 
     series = pd.Series(played)
     combined_players["Hands_Played"] = series
-    #Currently broken
+
     combined_players.to_csv('modified_ledger.csv', index=False)
     data.to_csv('modified_data.csv', index=False)
 
 if __name__ == '__main__':
-    main('Ver 0.01a')
+    main('Ver 0.1')
 
 
