@@ -9,81 +9,80 @@ import matplotlib.pyplot as plt
 def main(arg):
     print(f"{arg}")
     print(f"Created By : CodeSlug")
-    full_log = "testData.csv"
-    ledger = "ledger.csv"
+    full_log = "testFiles/poker_now_log_pglrqTDi9-nBInG5U2wGN-Tbh.csv"
+    ledger = "testFiles/ledger_pglrqTDi9-nBInG5U2wGN-Tbh.csv"
 
     data = pd.read_csv(full_log)
     ledger = pd.read_csv(ledger)
 
-    # Extracts Player Name to new column
-    regex = r'"(.*?)"'
-    # Extract matched parts and assign them to new columns
-    data['player_name'] = data['entry'].str.extract(regex)
-    # Fill unmatched rows with empty strings
-    data['player_name'] = data['player_name'].fillna("").astype('string')
+    def process_data(data):
+        # Extracts Player Name to new column
+        player_name_regex = r'"(.*?)"'
+        data['player_name'] = data['entry'].str.extract(player_name_regex).fillna("").astype('string')
 
+        # Extracts amount of bet / stack to new column
+        amount_regex = r'(\d+\.\d{2})'
+        data['amount'] = data['entry'].str.extract(amount_regex).fillna('')
 
-    # Extracts amount of bet / stack to new column
-    regex = r'(\d+\.\d{2})'
-    # Extract matched parts and assign them to new columns
-    data['amount'] = data['entry'].str.extract(regex)
-    # Fill unmatched rows with empty strings
-    data['amount'] = data['amount'].fillna('')
+        # Formats the action column
+        action_pattern = r"\b(calls|folds|raises|bets|checks|shows|collected|returned|posts|starting hand|ending hand|stand up|quits the game|change|participation)\b"
+        data['action'] = data['entry'].str.extract(action_pattern)
+        data['action'] = data['action'].str.replace('returned', 'return')
+        data['action'] = data['action'].str.replace('collected', 'collects')
+        data['action'] = data['action'].str.replace('starting hand', 'new hand')
+        data['action'] = data['action'].str.replace('ending hand', 'end hand')
+        data['action'] = data['action'].str.replace('stand up', 'leaves')
+        data['action'] = data['action'].str.replace('participation', 'joins')
+        data['action'] = data['action'].str.replace('quits the game', 'leaves')
+        data['action'] = data['action'].fillna("").astype("string")
 
-    # Formats the action column
-    action_pattern = r"\b(calls|folds|raises|bets|checks|shows|collected|returned|posts|starting hand|ending hand|stand up|quits the game|change|participation)\b"
-    data['action'] = data['entry'].str.extract(action_pattern)
-    data['action'] = data['action'].str.replace('returned', 'return')
-    data['action'] = data['action'].str.replace('collected', 'collects')
-    data['action'] = data['action'].str.replace('starting hand', 'new hand')
-    data['action'] = data['action'].str.replace('ending hand', 'end hand')
-    data['action'] = data['action'].str.replace('stand up', 'leaves')
-    data['action'] = data['action'].str.replace('participation', 'joins')
-    data['action'] = data['action'].str.replace('quits the game', 'leaves')
-    data['action'] = data['action'].fillna("").astype("string")
+        # Extracts the phase to new column
+        phase_pattern = r"\b(starting hand|Flop|Turn|River)\b"
+        data['phase'] = data['entry'].str.extract(phase_pattern)
+        data['phase'] = data['phase'].str.replace('starting hand', 'Preflop')
+        data['phase'] = data['phase'].bfill().astype("string")
 
-    # Extracts the phase to new column
-    phase_pattern = r"\b(starting hand|Flop|Turn|River)\b"
-    data['phase'] = data['entry'].str.extract(phase_pattern)
-    data['phase'] = data['phase'].str.replace('starting hand', 'Preflop')
-    data['phase'] = data['phase'].bfill().astype("string")
+        # Extracts the hand count to new column
+        hand_count_pattern = r"^-- starting hand #(\d+)"
+        data['hand_count'] = data['entry'].str.extract(hand_count_pattern)
+        data['hand_count'] = data['hand_count'].bfill().fillna(0).astype(int)
 
-    # Extracts the hand count to new column
-    hand_count_pattern = r"^-- starting hand #(\d+)"
-    data['hand_count'] = data['entry'].str.extract(hand_count_pattern)
-    data['hand_count'] = data['hand_count'].bfill()
-    data['hand_count'] = data['hand_count'].fillna(0).astype(int)
+        data['at'] = pd.to_datetime(data['at'])
+        data['amount'] = pd.to_numeric(data['amount'], errors='coerce')
 
-    data['at'] = pd.to_datetime(data['at'])
-    data['amount'] = pd.to_numeric(data['amount'], errors='coerce')
+        return data
 
-    # Potential actions list:
-    # checks, calls, raises, bets, folds
-    # shows, collects, return, posts
-    # new hand, end hand, leaves, joined
-    combined_players = ledger.groupby('player_id', as_index=False).agg({
-        'session_start_at': 'first',
-        'session_end_at': 'last',
-        'net': 'sum',  # Sum the 'score' values
-        'buy_in': 'sum',
-        'buy_out': 'sum',
-        'stack': 'last',
-        'player_nickname': 'first'
-    })
-    combined_players["session_start_at"] = pd.to_datetime(combined_players["session_start_at"])
-    combined_players["session_end_at"] = pd.to_datetime(combined_players["session_end_at"])
-    combined_players["net"] = combined_players["net"].astype(float)
-    combined_players["buy_in"] = combined_players["buy_in"].astype(float)
-    combined_players["buy_out"] = combined_players["buy_out"].astype(float)
-    combined_players["stack"] = combined_players["stack"].astype(float)
-    combined_players["player_nickname"] = combined_players["player_nickname"].astype("string")
+    def process_ledger(ledger):
+        combined_players = ledger.groupby('player_id', as_index=False).agg({
+            'session_start_at': 'first',
+            'session_end_at': 'last',
+            'net': 'sum',  # Sum the 'score' values
+            'buy_in': 'sum',
+            'buy_out': 'sum',
+            'stack': 'last',
+            'player_nickname': 'first'
+        })
+        combined_players["session_start_at"] = pd.to_datetime(combined_players["session_start_at"])
+        combined_players["session_end_at"] = pd.to_datetime(combined_players["session_end_at"])
+        combined_players["net"] = combined_players["net"].astype(float)
+        combined_players["buy_in"] = combined_players["buy_in"].astype(float)
+        combined_players["buy_out"] = combined_players["buy_out"].astype(float)
+        combined_players["stack"] = combined_players["stack"].astype(float)
+        combined_players["player_nickname"] = combined_players["player_nickname"].astype("string")
 
-    combined_players = combined_players.sort_values(by="player_nickname", ascending=True)
+        combined_players = combined_players.sort_values(by="player_nickname", ascending=True)
 
-    player_names = combined_players['player_nickname'].tolist()
+        return combined_players
+
+    data = process_data(data)
+    ledger = process_ledger(ledger)
+
+    # hand count calculations
+    player_names = ledger['player_nickname'].tolist()
     starts = []
     ends = []
     played = []
+    # This is somewhat efficient (only running through each unique player_name)
     for i in range(len(player_names)):
         regex = r'' + player_names[i] + ''
 
@@ -102,8 +101,8 @@ def main(arg):
         recent = None
         player_data = player_data.sort_values(by=['at'], ascending=True)
 
-        # TODO make this code more efficient and add time tracking
-        for index, row in player_data.iterrows():
+        #This is buggy and fails in certain cases (but idk why or exactly when so more testing is required)
+        for _, row in player_data.iterrows():
             if row['action'] == 'joins' and recent is None:
                 recent = row['hand_count']
             elif row['action'] == 'leaves' and recent is not None:
@@ -135,9 +134,8 @@ def main(arg):
             return processed
         return None
 
-    # Stacks over time charting
-    # implement profit tracking
     # implement vpip
+    # creates stack data stored in stack_info
     stack_history = data["entry"].apply(process_stacks)
     stack_rows = stack_history.explode().dropna()
 
@@ -148,28 +146,37 @@ def main(arg):
         data[['hand_count']].loc[stack_rows.index].reset_index(drop=True),
         stack_info
     ], axis=1)
-
+    # logic to create profit / stack x hands played graphs
     data = data.sort_values(by=['at'], ascending=True)
     stack_info.sort_values(by=['hand_count'], ascending=True)
 
-    df_join = data[data['action'] == 'joins']
+    # Currently if a player leaves and rejoins for more (or less) the stat tracker breaks
+    df_join = data[data['action'].isin(['joins', 'change'])]
+    df_join = df_join[['player_name', 'amount', 'hand_count', 'action']]
 
-    df_join = df_join[['player_name', 'amount', 'hand_count']]
-
-    players_adjustments = {}
     for index, row in df_join.iterrows():
         player = row['player_name']
         amount = row['amount']
+        action = row['action']
         hand = row['hand_count']
+        is_change = False
+        if action=='change':
+            is_change = True
 
         s = (stack_info['hand_count'] > hand) & (stack_info['Player'] == player)
 
-        stack_info.loc[s, 'Profit'] = stack_info.loc[s, 'Stack'] - amount
+        if not is_change:
+            stack_info.loc[s, 'Profit'] = stack_info.loc[s, 'Stack'] - amount
+        else:
+            stack_info.loc[s, 'Profit'] = stack_info.loc[s, 'Profit'] - amount
 
-    stack_info['Profit'] = stack_info['Profit'].round(2)
+    # Rounds profit to cents (removes floating point errors) [could replace with lamda expression]
+    # This is for some reason just a hair off (~2% or less) on all stacks
+    # Need to investigate more as to the cause of the issue
+    stack_info['Profit'] = stack_info['Profit'].fillna(0.0).apply(lambda x: math.trunc(x * 100) / 100)
 
     plt.figure(figsize=(10, 6))
-    top_ten_names = stack_info['Player'].unique()[:1]
+    top_ten_names = stack_info['Player'].unique()[:5]
     filteredSI = stack_info[stack_info['Player'].isin(top_ten_names)]
     # Group by player and plot
     for player, group in filteredSI.groupby('Player'):
@@ -187,16 +194,15 @@ def main(arg):
     # Show the plot
     plt.show()
 
-
-
     series = pd.Series(played)
-    combined_players["Hands_Played"] = series
+    ledger["Hands_Played"] = series
 
-    combined_players.to_csv('modified_ledger.csv', index=False)
+    ledger.to_csv('modified_ledger.csv', index=False)
     data.to_csv('modified_data.csv', index=False)
+
     stack_info.to_csv('stack_info.csv', index=False)
 
 if __name__ == '__main__':
-    main('Ver 0.1')
+    main('Ver 0.2')
 
 
