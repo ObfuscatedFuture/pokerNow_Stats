@@ -8,3 +8,7 @@ I plan to add:
 + XR Freq
 + Multi file support
 + More . . . 
+
+Known bugs:
++ Away players are still added to hand count
++ rejoining for more than leaving stack improperly updates profit
