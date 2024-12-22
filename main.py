@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 def main(arg):
     print(f"{arg}")
     print(f"Created By : CodeSlug")
-    full_log = "testFiles/poker_now_log_pglrqTDi9-nBInG5U2wGN-Tbh.csv"
+    full_log = "testFiles/poker_now_log_pglrqTDi9-nBInG5U2wGN-Tbh (1).csv"
     ledger = "testFiles/ledger_pglrqTDi9-nBInG5U2wGN-Tbh.csv"
 
     data = pd.read_csv(full_log)
@@ -146,9 +146,31 @@ def main(arg):
         data[['hand_count']].loc[stack_rows.index].reset_index(drop=True),
         stack_info
     ], axis=1)
-    # logic to create profit / stack x hands played graphs
-    data = data.sort_values(by=['at'], ascending=True)
-    stack_info.sort_values(by=['hand_count'], ascending=True)
+    stack_info['hand_count'] = stack_info['hand_count'].astype(int)
+
+    # On leave stacks must be updated again in order to account for last played hand in data
+    fix_stack = data[data['action'].isin(['leaves'])]
+
+    fix_stack = fix_stack[['hand_count', 'amount', 'player_name']]
+    fix_stack['hand_count'] = fix_stack['hand_count'].astype(int)
+
+    fix_stack = fix_stack.rename(columns={
+        'player_name': 'Player',
+        'amount': 'Stack'
+    }).assign(Position=-1)
+
+    print(fix_stack['hand_count'].dtype)
+    print(stack_info['hand_count'].dtype)
+
+    full_stack = pd.concat([stack_info, fix_stack[['hand_count', 'Position', 'Player', 'Stack']].
+                           reindex(stack_info.columns, axis=1, fill_value=None)
+    ])
+    full_stack['hand_count'] = full_stack['hand_count'].astype(int)
+
+    stack_info = full_stack
+    # Sorting for profit col logic
+    data = data.sort_values(by='at', ascending=True)
+    stack_info = stack_info.sort_values(by='hand_count', ascending=True)
 
     # Currently if a player leaves and rejoins for more (or less) the stat tracker breaks
     df_join = data[data['action'].isin(['joins', 'change'])]
@@ -168,12 +190,12 @@ def main(arg):
         if not is_change:
             stack_info.loc[s, 'Profit'] = stack_info.loc[s, 'Stack'] - amount
         else:
-            stack_info.loc[s, 'Profit'] = stack_info.loc[s, 'Profit'] - amount
+            stack_info.loc[s, 'Profit'] = (stack_info.loc[s, 'Profit'] - amount)
 
     # Rounds profit to cents (removes floating point errors) [could replace with lamda expression]
     # This is for some reason just a hair off (~2% or less) on all stacks
     # Need to investigate more as to the cause of the issue
-    stack_info['Profit'] = stack_info['Profit'].fillna(0.0).apply(lambda x: math.trunc(x * 100) / 100)
+    stack_info['Profit'] = stack_info['Profit'].fillna(0.0).round(2)
 
     plt.figure(figsize=(10, 6))
     top_ten_names = stack_info['Player'].unique()[:5]
