@@ -101,7 +101,8 @@ def main(arg):
         recent = None
         player_data = player_data.sort_values(by=['at'], ascending=True)
 
-        #This is buggy and fails in certain cases (but idk why or exactly when so more testing is required)
+        # If a player is 'away' they are still marked as hands_played
+        # This might be a bit buggy and give erroneous results so I need to double check
         for _, row in player_data.iterrows():
             if row['action'] == 'joins' and recent is None:
                 recent = row['hand_count']
@@ -114,10 +115,20 @@ def main(arg):
         ends.append(end)
         played.append(hands_played)
 
+    series = pd.Series(played)
+    ledger["hands_played"] = series
         # TODO add time played column to modified_ledger.csv
-        # TODO add vpip? column to modified_ledger.csv
-######################
+        # add vpip separately (Probably in a method)
 
+    # Displays profit / hundred hands for each player, ordered highest to lowest
+    def profit_per_hundred(ledger):
+        profit_hundred = ledger.loc[:, ['player_id', 'net', 'player_nickname', 'hands_played']]
+        profit_hundred.loc[:, 'profit_per_hundred'] = (profit_hundred['net'] / profit_hundred['hands_played']).round(2)
+        profit_hundred = profit_hundred.sort_values(by='profit_per_hundred', ascending=False)
+        profit_hundred = profit_hundred.reset_index(drop = True)
+        print(profit_hundred[['player_nickname', 'profit_per_hundred', 'hands_played']].to_string(index = False))
+
+    profit_per_hundred(ledger)
 #######################################
     # Processing for stack_info dataFrame
     def process_stacks(row):
@@ -159,9 +170,6 @@ def main(arg):
         'amount': 'Stack'
     }).assign(Position=-1)
 
-    print(fix_stack['hand_count'].dtype)
-    print(stack_info['hand_count'].dtype)
-
     full_stack = pd.concat([stack_info, fix_stack[['hand_count', 'Position', 'Player', 'Stack']].
                            reindex(stack_info.columns, axis=1, fill_value=None)
     ])
@@ -192,32 +200,59 @@ def main(arg):
         else:
             stack_info.loc[s, 'Profit'] = (stack_info.loc[s, 'Profit'] - amount)
 
-    # Rounds profit to cents (removes floating point errors) [could replace with lamda expression]
-    # This is for some reason just a hair off (~2% or less) on all stacks
-    # Need to investigate more as to the cause of the issue
     stack_info['Profit'] = stack_info['Profit'].fillna(0.0).round(2)
 
-    plt.figure(figsize=(10, 6))
-    top_ten_names = stack_info['Player'].unique()[:5]
-    filteredSI = stack_info[stack_info['Player'].isin(top_ten_names)]
-    # Group by player and plot
-    for player, group in filteredSI.groupby('Player'):
-        plt.plot(group['hand_count'], group['Profit'], marker='o', label=player)
-        plt.plot(group['hand_count'], group['Stack'], marker='o', label=player)
+    def plot_stack_and_profit(stack_info, num):
+        plt.figure(figsize=(10, 6))
+        r = r'^([^@]+)'
+        stack_info['Player'] = stack_info['Player'].str.extract(r)
+        amt_to_display = stack_info['Player'].unique()[:num]
+        filteredSI = stack_info[stack_info['Player'].isin(amt_to_display)]
+        # Group by player and plot
+        for player, group in filteredSI.groupby('Player'):
+            plt.plot(group['hand_count'], group['Profit'], marker='o', label=player + ' Profit')
+            plt.plot(group['hand_count'], group['Stack'], marker='o', label=player + ' Stack')
 
-    # Add labels, title, and legend
-    plt.ylabel('Profit', fontsize=14)
-    plt.xlabel('Hand Count', fontsize=14)
-    plt.title('Player Profit vs. Hand Count', fontsize=16)
-    plt.legend(title="Player", bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
-    plt.grid(True)
-    plt.tight_layout()
+        # Add labels, title, and legend
+        plt.ylabel('Profit', fontsize=14)
+        plt.xlabel('Hand Count', fontsize=14)
+        plt.title('Player Stack & Profit vs. Hand Count', fontsize=16)
+        plt.legend(title="Player", bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+        plt.grid(True)
+        plt.tight_layout()
+        # Shade the area below y=0 red
+        plt.axhspan(ymin=-plt.ylim()[1], ymax=0, color='red', alpha=0.15)
 
-    # Show the plot
-    plt.show()
+        # Show the plot
+        plt.show()
 
-    series = pd.Series(played)
-    ledger["Hands_Played"] = series
+    def plot_profit(stack_info, num):
+        plt.figure(figsize=(10, 6))
+        r = r'^([^@]+)'
+        stack_info['Player'] = stack_info['Player'].str.extract(r)
+        amt_to_display = stack_info['Player'].unique()[:num]
+        filteredSI = stack_info[stack_info['Player'].isin(amt_to_display)]
+        # Group by player and plot
+        for player, group in filteredSI.groupby('Player'):
+            plt.plot(group['hand_count'], group['Profit'], marker='o', label=player + ' Profit')
+
+        # Add labels, title, and legend
+        plt.ylabel('Profit', fontsize=14)
+        plt.xlabel('Hand Count', fontsize=14)
+        plt.title('Player Profit vs. Hand Count', fontsize=16)
+        plt.legend(title="Player", bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+        plt.grid(True)
+        plt.tight_layout()
+        # Shade the area below y=0 red
+        plt.axhspan(ymin=-plt.ylim()[1], ymax=0, color='red', alpha=0.15)
+
+        # Show the plot
+        plt.show()
+
+    plot_stack_and_profit(stack_info, 20)
+    plot_profit(stack_info, 20)
+
+
 
     ledger.to_csv('modified_ledger.csv', index=False)
     data.to_csv('modified_data.csv', index=False)
