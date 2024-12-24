@@ -78,7 +78,10 @@ def main(arg):
     ledger = process_ledger(ledger)
 
     # hand count calculations
+    # This is the only line of the handcount calcs that rely on ledger
+    # using .unique.tolist on data doesnt seem to work in certain cases
     player_names = ledger['player_nickname'].tolist()
+
     starts = []
     ends = []
     played = []
@@ -120,15 +123,7 @@ def main(arg):
         # TODO add time played column to modified_ledger.csv
         # add vpip separately (Probably in a method)
 
-    # Displays profit / hundred hands for each player, ordered highest to lowest
-    def profit_per_hundred(ledger):
-        profit_hundred = ledger.loc[:, ['player_id', 'net', 'player_nickname', 'hands_played']]
-        profit_hundred.loc[:, 'profit_per_hundred'] = (profit_hundred['net'] / profit_hundred['hands_played']).round(2)
-        profit_hundred = profit_hundred.sort_values(by='profit_per_hundred', ascending=False)
-        profit_hundred = profit_hundred.reset_index(drop = True)
-        print(profit_hundred[['player_nickname', 'profit_per_hundred', 'hands_played']].to_string(index = False))
 
-    profit_per_hundred(ledger)
 #######################################
     # Processing for stack_info dataFrame
     def process_stacks(row):
@@ -137,6 +132,7 @@ def main(arg):
             players = stacks.split(" | ")
             processed = []
             for player in players:
+
                 parts = player.split('"')
                 position = parts[0].strip()
                 name = parts[1]
@@ -202,12 +198,48 @@ def main(arg):
 
     stack_info['Profit'] = stack_info['Profit'].fillna(0.0).round(2)
 
+    # Isolates necessary data for vpip calculations
+    vpip_df = data[data['action'].isin(['calls', 'raises'])]
+    vpip_df = vpip_df[['player_name','amount','action','phase','hand_count']]
+    # I thought this was necessary but it actually omits when limps to bb and the bb just calls? maybe?
+    # vpip_df = vpip_df[vpip_df['phase']=='Preflop']
+    vpip_df = vpip_df.drop_duplicates(subset=['player_name', 'hand_count'])
+    vpip_df.sort_values(by='player_name')
+
+    result = vpip_df['player_name'].value_counts().to_dict()
+    print(result)
+    vpip_df = pd.DataFrame(list(result.items()), columns=['player_name', 'voluntary_put_in_pot'])
+    print(vpip_df)
+    # now do division vpip / hands played * 100 to get vpip %
+
+    #WIP to remove reliance on ledger file
+    # remade_ledger = stack_info.groupby('Player', as_index=False).agg({
+    #     'Stack': 'last',
+    #     'Profit': 'last'
+    # })
+
+    # print(remade_ledger.head(2))
+
+
+
+    # Displays profit / hundred hands for each player, ordered highest to lowest
+    def profit_per_hundred(ledger):
+        profit_hundred = ledger.loc[:, ['player_id', 'net', 'player_nickname', 'hands_played']]
+        profit_hundred.loc[:, 'profit_per_hundred'] = (profit_hundred['net'] / profit_hundred['hands_played']).round(2)
+        profit_hundred = profit_hundred.sort_values(by='profit_per_hundred', ascending=False)
+        profit_hundred = profit_hundred.reset_index(drop=True)
+        print(profit_hundred[['player_nickname', 'profit_per_hundred', 'hands_played']].to_string(index=False))
+
+    profit_per_hundred(ledger)
+
+    # Creates matplot scatter plot of stack and profit as function of hand count
     def plot_stack_and_profit(stack_info, num):
         plt.figure(figsize=(10, 6))
         r = r'^([^@]+)'
-        stack_info['Player'] = stack_info['Player'].str.extract(r)
-        amt_to_display = stack_info['Player'].unique()[:num]
-        filteredSI = stack_info[stack_info['Player'].isin(amt_to_display)]
+        s_info = stack_info.copy(deep=True)
+        s_info['Player'] = s_info['Player'].str.extract(r)
+        amt_to_display = s_info['Player'].unique()[:num]
+        filteredSI = s_info[s_info['Player'].isin(amt_to_display)]
         # Group by player and plot
         for player, group in filteredSI.groupby('Player'):
             plt.plot(group['hand_count'], group['Profit'], marker='o', label=player + ' Profit')
@@ -226,12 +258,14 @@ def main(arg):
         # Show the plot
         plt.show()
 
+    # Creates matplot scatter plot of profit as function of hand count
     def plot_profit(stack_info, num):
         plt.figure(figsize=(10, 6))
         r = r'^([^@]+)'
-        stack_info['Player'] = stack_info['Player'].str.extract(r)
-        amt_to_display = stack_info['Player'].unique()[:num]
-        filteredSI = stack_info[stack_info['Player'].isin(amt_to_display)]
+        s_info = stack_info.copy(deep=True)
+        s_info['Player'] = s_info['Player'].str.extract(r)
+        amt_to_display = s_info['Player'].unique()[:num]
+        filteredSI = s_info[s_info['Player'].isin(amt_to_display)]
         # Group by player and plot
         for player, group in filteredSI.groupby('Player'):
             plt.plot(group['hand_count'], group['Profit'], marker='o', label=player + ' Profit')
@@ -249,15 +283,49 @@ def main(arg):
         # Show the plot
         plt.show()
 
+    def plot_stack_and_profit_for_player(stack_info, player_name):
+        plt.figure(figsize=(10, 6))
+
+        r = r'^([^@]+)'
+        s_info = stack_info.copy(deep=True)
+        filteredSI = s_info[s_info['Player'] == player_name]
+        s_info['Player'] = s_info['Player'].str.extract(r)
+        # Filter for the specified player
+
+        # Check if there is data for the specified player
+        if filteredSI.empty:
+            print(f"No data found for player: {player_name}")
+            return
+
+        # Plot the player's data
+        plt.plot(filteredSI['hand_count'], filteredSI['Profit'], marker='o', label=player_name + ' Profit')
+        plt.plot(filteredSI['hand_count'], filteredSI['Stack'], marker='o', label=player_name + ' Stack')
+
+        # Add labels, title, and legend
+        plt.ylabel('Profit', fontsize=14)
+        plt.xlabel('Hand Count', fontsize=14)
+        plt.title(f'{player_name} Stack & Profit vs. Hand Count', fontsize=16)
+        plt.legend(title="Metric", bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+        plt.grid(True)
+        plt.tight_layout()
+
+        # Shade the area below y=0 red
+        plt.axhspan(ymin=-plt.ylim()[1], ymax=0, color='red', alpha=0.15)
+
+        # Show the plot
+        plt.show()
+
     plot_stack_and_profit(stack_info, 20)
     plot_profit(stack_info, 20)
 
+    plot_stack_and_profit_for_player(stack_info, 'Andy @ KYUUiBlYsH')
 
-
+    data = data.sort_values(by="at")
+    stack_info.to_csv('stack_info.csv', index=False)
     ledger.to_csv('modified_ledger.csv', index=False)
     data.to_csv('modified_data.csv', index=False)
 
-    stack_info.to_csv('stack_info.csv', index=False)
+
 
 if __name__ == '__main__':
     main('Ver 0.2')
