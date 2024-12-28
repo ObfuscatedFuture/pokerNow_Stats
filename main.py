@@ -19,13 +19,20 @@ def main(arg):
         # Extracts Player Name to new column
         player_name_regex = r'"(.*?)"'
         data['player_name'] = data['entry'].str.extract(player_name_regex).fillna("").astype('string')
+        player_nickname = r'(\S+) @'
+        data['player_nickname'] = data['player_name'].str.extract(player_nickname).fillna("").astype('string')
+        player_id = r'@ (\S+)$'
+        data['player_id'] = data['player_name'].str.extract(player_id).fillna("").astype('string')
+
+        remove_dupe_names = data.groupby('player_nickname')['player_id'].first().to_dict()
+        data['player_id'] = data['player_nickname'].map(remove_dupe_names)
 
         # Extracts amount of bet / stack to new column
         amount_regex = r'(\d+\.\d{2})'
         data['amount'] = data['entry'].str.extract(amount_regex).fillna('')
 
         # Formats the action column
-        action_pattern = r"\b(calls|folds|raises|bets|checks|shows|collected|returned|posts|starting hand|ending hand|stand up|quits the game|change|participation)\b"
+        action_pattern = r"\b(calls|folds|raises|bets|checks|shows|collected|returned|posts|starting hand|ending hand|stand up|quits the game|change|participation| stacks: #1)\b"
         data['action'] = data['entry'].str.extract(action_pattern)
         data['action'] = data['action'].str.replace('returned', 'return')
         data['action'] = data['action'].str.replace('collected', 'collects')
@@ -34,6 +41,7 @@ def main(arg):
         data['action'] = data['action'].str.replace('stand up', 'leaves')
         data['action'] = data['action'].str.replace('participation', 'joins')
         data['action'] = data['action'].str.replace('quits the game', 'leaves')
+        data['action'] = data['action'].str.replace(' stacks: #1', 'stacks')
         data['action'] = data['action'].fillna("").astype("string")
 
         # Extracts the phase to new column
@@ -77,51 +85,8 @@ def main(arg):
     data = process_data(data)
     ledger = process_ledger(ledger)
 
-    # hand count calculations
-    # This is the only line of the handcount calcs that rely on ledger
-    # using .unique.tolist on data doesnt seem to work in certain cases
-    player_names = ledger['player_nickname'].tolist()
-
-    starts = []
-    ends = []
-    played = []
-    # This is somewhat efficient (only running through each unique player_name)
-    for i in range(len(player_names)):
-        regex = r'' + player_names[i] + ''
-
-        hands_played = 0
-
-        player_data = data[data['player_name'].str.contains(regex)]
-        end = player_data.loc[player_data['action'] == 'leaves', 'hand_count'].astype(int).max()
-        start = player_data['hand_count'].astype(int).min()+1
-
-        if math.isnan(end):
-            end = player_data['hand_count'].astype(int).max()
-            hands_played = end-start
-
-        player_data = player_data[player_data['action'].isin(['joins', 'leaves'])]
-
-        recent = None
-        player_data = player_data.sort_values(by=['at'], ascending=True)
-
-        # If a player is 'away' they are still marked as hands_played
-        # This might be a bit buggy and give erroneous results so I need to double check
-        for _, row in player_data.iterrows():
-            if row['action'] == 'joins' and recent is None:
-                recent = row['hand_count']
-            elif row['action'] == 'leaves' and recent is not None:
-                difference = row['hand_count'] - recent
-                hands_played += difference
-                recent = None
-
-        starts.append(start)
-        ends.append(end)
-        played.append(hands_played)
-
-    series = pd.Series(played)
-    ledger["hands_played"] = series
-        # TODO add time played column to modified_ledger.csv
-        # add vpip separately (Probably in a method)
+     # TODO add time played column to modified_ledger.csv
+     # add vpip separately (Probably in a method)
 
 
 #######################################
@@ -132,22 +97,27 @@ def main(arg):
             players = stacks.split(" | ")
             processed = []
             for player in players:
-
                 parts = player.split('"')
                 position = parts[0].strip()
-                name = parts[1]
+                player_nick = r'(\S+) @'
+                m = re.search(player_nick, parts[1])
+                name = m.group(1)
+                player_id = r'@ (\S+)$'
+                m = re.search(player_id, parts[1])
+                id = m.group(1)
                 stack = float(parts[2].strip()[1:-1])  # Extract and convert stack value
-                processed.append((position, name, stack))
+                processed.append((position, name, id, stack))
             return processed
         return None
 
     # implement vpip
     # creates stack data stored in stack_info
+
     stack_history = data["entry"].apply(process_stacks)
     stack_rows = stack_history.explode().dropna()
 
     stack_info = pd.DataFrame(
-    stack_rows.tolist(), columns=['Position', 'Player', 'Stack']
+    stack_rows.tolist(), columns=['Position', 'player_nickname', 'player_id', 'Stack']
     )
     stack_info = pd.concat([
         data[['hand_count']].loc[stack_rows.index].reset_index(drop=True),
@@ -155,18 +125,20 @@ def main(arg):
     ], axis=1)
     stack_info['hand_count'] = stack_info['hand_count'].astype(int)
 
+    remove_dupes = stack_info.groupby('player_nickname')['player_id'].first().to_dict()
+    stack_info['player_id'] = stack_info['player_nickname'].map(remove_dupes)
+
     # On leave stacks must be updated again in order to account for last played hand in data
     fix_stack = data[data['action'].isin(['leaves'])]
 
-    fix_stack = fix_stack[['hand_count', 'amount', 'player_name']]
+    fix_stack = fix_stack[['hand_count', 'amount', 'player_nickname', 'player_id']]
     fix_stack['hand_count'] = fix_stack['hand_count'].astype(int)
 
     fix_stack = fix_stack.rename(columns={
-        'player_name': 'Player',
         'amount': 'Stack'
     }).assign(Position=-1)
 
-    full_stack = pd.concat([stack_info, fix_stack[['hand_count', 'Position', 'Player', 'Stack']].
+    full_stack = pd.concat([stack_info, fix_stack[['hand_count', 'Position', 'player_nickname', 'player_id', 'Stack']].
                            reindex(stack_info.columns, axis=1, fill_value=None)
     ])
     full_stack['hand_count'] = full_stack['hand_count'].astype(int)
@@ -178,26 +150,40 @@ def main(arg):
 
     # Currently if a player leaves and rejoins for more (or less) the stat tracker breaks
     df_join = data[data['action'].isin(['joins', 'change'])]
-    df_join = df_join[['player_name', 'amount', 'hand_count', 'action']]
+    df_join = df_join[['player_id', 'amount', 'hand_count', 'action']]
 
     for index, row in df_join.iterrows():
-        player = row['player_name']
+        id = row['player_id']
         amount = row['amount']
         action = row['action']
         hand = row['hand_count']
-        is_change = False
-        if action=='change':
-            is_change = True
+        is_join = False
+        if action=='joins':
+            is_join = True
 
-        s = (stack_info['hand_count'] > hand) & (stack_info['Player'] == player)
+        s = (stack_info['hand_count'] > hand) & (stack_info['player_id'] == id)
+        # If player rejoins (not first join) this if condition activates
+        if stack_info[(stack_info['player_id'] == id) & (stack_info['hand_count'] < hand)].shape[0] > 0:
+            is_join = False
 
-        if not is_change:
+        if is_join:
             stack_info.loc[s, 'Profit'] = stack_info.loc[s, 'Stack'] - amount
         else:
             stack_info.loc[s, 'Profit'] = (stack_info.loc[s, 'Profit'] - amount)
 
     stack_info['Profit'] = stack_info['Profit'].fillna(0.0).round(2)
 
+    # Calculates Hands_Played using modified_data instead of ledger file (then appends to ledger)
+    # Removing reliance on ledger is a WIP so eventually this should append to a new dataFrame
+    results = []
+    for unique_name in stack_info['player_nickname'].unique():
+        results.append({'player_nickname': unique_name, 'Hands_Played': len(stack_info[stack_info['player_nickname']==unique_name])})
+
+    hands_played_df = pd.DataFrame(results)
+
+    ledger = pd.merge(ledger, hands_played_df[['player_nickname', 'Hands_Played']], on='player_nickname', how='right')
+    # Display the resulting DataFrame
+    print(hands_played_df)
     # Isolates necessary data for vpip calculations
     vpip_df = data[data['action'].isin(['calls', 'raises'])]
     vpip_df = vpip_df[['player_name','amount','action','phase','hand_count']]
@@ -207,9 +193,12 @@ def main(arg):
     vpip_df.sort_values(by='player_name')
 
     result = vpip_df['player_name'].value_counts().to_dict()
-    print(result)
+    # print(result)
     vpip_df = pd.DataFrame(list(result.items()), columns=['player_name', 'voluntary_put_in_pot'])
+    r = r'^([^@]+)'
+    vpip_df['player_id'] = vpip_df['player_name'].str.extract(r)
     print(vpip_df)
+    ledger = pd.merge(ledger, vpip_df[['player_id', 'voluntary_put_in_pot']], on='player_id', how='left')
     # now do division vpip / hands played * 100 to get vpip %
 
     #WIP to remove reliance on ledger file
@@ -222,26 +211,30 @@ def main(arg):
 
 
 
-    # Displays profit / hundred hands for each player, ordered highest to lowest
-    def profit_per_hundred(ledger):
-        profit_hundred = ledger.loc[:, ['player_id', 'net', 'player_nickname', 'hands_played']]
-        profit_hundred.loc[:, 'profit_per_hundred'] = (profit_hundred['net'] / profit_hundred['hands_played']).round(2)
-        profit_hundred = profit_hundred.sort_values(by='profit_per_hundred', ascending=False)
-        profit_hundred = profit_hundred.reset_index(drop=True)
-        print(profit_hundred[['player_nickname', 'profit_per_hundred', 'hands_played']].to_string(index=False))
+    # Displays profit / hand for each player, ordered highest to lowest
+    # Creates new column in ledger df to store profit/hand data
+    def profit_per_hand(ledger):
+        profit_hand = ledger.loc[:, ['player_id', 'net', 'player_nickname', 'Hands_Played']]
+        profit_hand.loc[:, 'profit_per_hand'] = ((profit_hand['net'] / profit_hand['Hands_Played'])/100).round(3)
+        profit_hand = profit_hand.sort_values(by='profit_per_hand', ascending=False)
+        profit_hand = profit_hand.reset_index(drop=True)
+        print(profit_hand[['player_nickname', 'profit_per_hand', 'Hands_Played']].to_string(index=False))
+        ledger = pd.merge(ledger, profit_hand[['player_id', 'profit_per_hand']], on='player_id', how='left')
+        return ledger
 
-    profit_per_hundred(ledger)
+    ledger = profit_per_hand(ledger)
 
+    # Append NaN to gaps in scatter plot if possible
+    # Also create a 'No Data' graph to catch cases with no data
     # Creates matplot scatter plot of stack and profit as function of hand count
     def plot_stack_and_profit(stack_info, num):
         plt.figure(figsize=(10, 6))
-        r = r'^([^@]+)'
+
         s_info = stack_info.copy(deep=True)
-        s_info['Player'] = s_info['Player'].str.extract(r)
-        amt_to_display = s_info['Player'].unique()[:num]
-        filteredSI = s_info[s_info['Player'].isin(amt_to_display)]
+        amt_to_display = s_info['player_nickname'].unique()[:num]
+        filteredSI = s_info[s_info['player_nickname'].isin(amt_to_display)]
         # Group by player and plot
-        for player, group in filteredSI.groupby('Player'):
+        for player, group in filteredSI.groupby('player_nickname'):
             plt.plot(group['hand_count'], group['Profit'], marker='o', label=player + ' Profit')
             plt.plot(group['hand_count'], group['Stack'], marker='o', label=player + ' Stack')
 
@@ -261,13 +254,12 @@ def main(arg):
     # Creates matplot scatter plot of profit as function of hand count
     def plot_profit(stack_info, num):
         plt.figure(figsize=(10, 6))
-        r = r'^([^@]+)'
+
         s_info = stack_info.copy(deep=True)
-        s_info['Player'] = s_info['Player'].str.extract(r)
-        amt_to_display = s_info['Player'].unique()[:num]
-        filteredSI = s_info[s_info['Player'].isin(amt_to_display)]
+        amt_to_display = s_info['player_nickname'].unique()[:num]
+        filteredSI = s_info[s_info['player_nickname'].isin(amt_to_display)]
         # Group by player and plot
-        for player, group in filteredSI.groupby('Player'):
+        for player, group in filteredSI.groupby('player_nickname'):
             plt.plot(group['hand_count'], group['Profit'], marker='o', label=player + ' Profit')
 
         # Add labels, title, and legend
@@ -286,10 +278,8 @@ def main(arg):
     def plot_stack_and_profit_for_player(stack_info, player_name):
         plt.figure(figsize=(10, 6))
 
-        r = r'^([^@]+)'
         s_info = stack_info.copy(deep=True)
-        filteredSI = s_info[s_info['Player'] == player_name]
-        s_info['Player'] = s_info['Player'].str.extract(r)
+        filteredSI = s_info[s_info['player_nickname'] == player_name]
         # Filter for the specified player
 
         # Check if there is data for the specified player
@@ -318,7 +308,7 @@ def main(arg):
     plot_stack_and_profit(stack_info, 20)
     plot_profit(stack_info, 20)
 
-    plot_stack_and_profit_for_player(stack_info, 'Andy @ KYUUiBlYsH')
+    plot_stack_and_profit_for_player(stack_info, 'OODI')
 
     data = data.sort_values(by="at")
     stack_info.to_csv('stack_info.csv', index=False)
@@ -328,6 +318,6 @@ def main(arg):
 
 
 if __name__ == '__main__':
-    main('Ver 0.2')
+    main('Ver 0.24')
 
 
