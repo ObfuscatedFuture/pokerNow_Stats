@@ -12,3 +12,5 @@ I plan to add:
 Known bugs:
 + Away players are still added to hand count
 + rejoining for more than leaving stack improperly updates profit
+
+I plan to add Shiny integration and will post link once that is made public
