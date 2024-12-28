@@ -1,0 +1,6 @@
+Ver 0.24
+ + Added Changelog
+ + Recoded data, ledger, and stack_info to use player_nickname and player_id columns
+ + Fixed bug that occurred when players logged in mid game
+ + Continued VPIP implementation
+ + Reduced reliance on ledger file
