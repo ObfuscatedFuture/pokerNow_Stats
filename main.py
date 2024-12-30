@@ -24,8 +24,13 @@ def main(arg):
         player_id = r'@ (\S+)$'
         data['player_id'] = data['player_name'].str.extract(player_id).fillna("").astype('string')
 
+        # Normalize player_id based on player_nickname
         remove_dupe_names = data.groupby('player_nickname')['player_id'].first().to_dict()
         data['player_id'] = data['player_nickname'].map(remove_dupe_names)
+
+        # Normalize player_nickname based on the updated player_id
+        no_name_changes = data.groupby('player_id')['player_nickname'].first().to_dict()
+        data['player_nickname'] = data['player_id'].map(no_name_changes)
 
         # Extracts amount of bet / stack to new column
         amount_regex = r'(\d+\.\d{2})'
@@ -125,6 +130,11 @@ def main(arg):
     ], axis=1)
     stack_info['hand_count'] = stack_info['hand_count'].astype(int)
 
+    # Normalize names when player changes name mid-way through game
+    no_name_changes = stack_info.groupby('player_id')['player_nickname'].first().to_dict()
+    stack_info['player_nickname'] = stack_info['player_id'].map(no_name_changes)
+
+    #Normalize IDs when player joins under 2 IDs (Or logs in mid game)*
     remove_dupes = stack_info.groupby('player_nickname')['player_id'].first().to_dict()
     stack_info['player_id'] = stack_info['player_nickname'].map(remove_dupes)
 
@@ -182,23 +192,19 @@ def main(arg):
     hands_played_df = pd.DataFrame(results)
 
     ledger = pd.merge(ledger, hands_played_df[['player_nickname', 'Hands_Played']], on='player_nickname', how='right')
-    # Display the resulting DataFrame
-    print(hands_played_df)
+
     # Isolates necessary data for vpip calculations
     vpip_df = data[data['action'].isin(['calls', 'raises'])]
-    vpip_df = vpip_df[['player_name','amount','action','phase','hand_count']]
-    # I thought this was necessary but it actually omits when limps to bb and the bb just calls? maybe?
-    # vpip_df = vpip_df[vpip_df['phase']=='Preflop']
-    vpip_df = vpip_df.drop_duplicates(subset=['player_name', 'hand_count'])
-    vpip_df.sort_values(by='player_name')
+    vpip_df = vpip_df[['player_nickname', 'player_id','amount','action','phase','hand_count']]
+    #Only counts 1x per hand played
+    vpip_df = vpip_df[['player_id', 'hand_count']].drop_duplicates()
 
-    result = vpip_df['player_name'].value_counts().to_dict()
+    result = vpip_df['player_id'].value_counts().to_dict()
     # print(result)
-    vpip_df = pd.DataFrame(list(result.items()), columns=['player_name', 'voluntary_put_in_pot'])
-    r = r'^([^@]+)'
-    vpip_df['player_id'] = vpip_df['player_name'].str.extract(r)
-    print(vpip_df)
+    vpip_df = pd.DataFrame(list(result.items()), columns=['player_id', 'voluntary_put_in_pot'])
+
     ledger = pd.merge(ledger, vpip_df[['player_id', 'voluntary_put_in_pot']], on='player_id', how='left')
+    ledger['voluntary_put_in_pot'] = ((ledger['voluntary_put_in_pot']/ledger['Hands_Played'])*100).round(2)
     # now do division vpip / hands played * 100 to get vpip %
 
     #WIP to remove reliance on ledger file
@@ -218,7 +224,6 @@ def main(arg):
         profit_hand.loc[:, 'profit_per_hand'] = ((profit_hand['net'] / profit_hand['Hands_Played'])/100).round(3)
         profit_hand = profit_hand.sort_values(by='profit_per_hand', ascending=False)
         profit_hand = profit_hand.reset_index(drop=True)
-        print(profit_hand[['player_nickname', 'profit_per_hand', 'Hands_Played']].to_string(index=False))
         ledger = pd.merge(ledger, profit_hand[['player_id', 'profit_per_hand']], on='player_id', how='left')
         return ledger
 
@@ -308,7 +313,7 @@ def main(arg):
     plot_stack_and_profit(stack_info, 20)
     plot_profit(stack_info, 20)
 
-    plot_stack_and_profit_for_player(stack_info, 'OODI')
+    plot_stack_and_profit_for_player(stack_info, 'Tenny2')
 
     data = data.sort_values(by="at")
     stack_info.to_csv('stack_info.csv', index=False)
@@ -318,6 +323,6 @@ def main(arg):
 
 
 if __name__ == '__main__':
-    main('Ver 0.24')
+    main('Ver 0.25')
 
 
