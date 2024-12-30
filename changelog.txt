@@ -1,3 +1,7 @@
+Ver 0.25
+ + Implemented VPIP
+ + Fixed bug that would occur when players rejoined with different names
+
 Ver 0.24
  + Added Changelog
  + Recoded data, ledger, and stack_info to use player_nickname and player_id columns
