@@ -8,75 +8,41 @@ import matplotlib.pyplot as plt
 
 from shiny import App, ui, reactive, render, req
 from shinywidgets import render_plotly
-from shiny.express import input, render, ui
 from shinywidgets import render_widget
 
+from shiny import ui
 
-ui.page_opts(title="PokerNow Data Visualizer", fillable=True)
-
-
-with ui.sidebar():
+app_ui = ui.page_sidebar(
+    ui.sidebar(
         ui.input_file("csv_file", "Upload CSV", accept=[".csv"]),
-        ui.input_slider("val", "Players", min=0, max=10, value=10)
-        ui.input_text("text", "Specific Player", value="Chase")
-        
-
-with ui.navset_card_underline(title="Plots"):
-    with ui.nav_panel("Player Stacks & Profit"):
-        @render.plot
-        def plot_stack_and_profit():
-            f = req(input.csv_file())
-            if(stack_info is None or stack_info.empty):
-                return
-            plt.figure(figsize=(10, 6))
-            s_info = stack_info.copy(deep=True)
-            amt_to_display = s_info['player_nickname'].unique()[:input.val()]
-            filteredSI = s_info[s_info['player_nickname'].isin(amt_to_display)]
-            # Group by player and plot
-            for player, group in filteredSI.groupby('player_nickname'):
-                plt.plot(group['hand_count'], group['Profit'], marker='o', label=player + ' Profit')
-                plt.plot(group['hand_count'], group['Stack'], marker='o', label=player + ' Stack')
-
-            # Add labels, title, and legend
-            plt.ylabel('Profit', fontsize=14)
-            plt.xlabel('Hand Count', fontsize=14)
-            plt.title('Player Stack & Profit vs. Hand Count', fontsize=16)
-            plt.legend(title="Player", bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
-            plt.grid(True)
-            plt.tight_layout()
-            # Shade the area below y=0 red
-            plt.axhspan(ymin=-plt.ylim()[1], ymax=0, color='red', alpha=0.15)
-
-    with ui.nav_panel("Player Stacks"):
-        @render.plot
-        def plot_profit():
-            f = req(input.csv_file())
-            if(stack_info is None or stack_info.empty):
-                return
-            plt.figure(figsize=(10, 6))
-            s_info = stack_info.copy(deep=True)
-            amt_to_display = s_info['player_nickname'].unique()[:input.val()]
-            filteredSI = s_info[s_info['player_nickname'].isin(amt_to_display)]
-            # Group by player and plot
-            for player, group in filteredSI.groupby('player_nickname'):
-                plt.plot(group['hand_count'], group['Profit'], marker='o', label=player + ' Profit')
-
-            # Add labels, title, and legend
-            plt.ylabel('Profit', fontsize=14)
-            plt.xlabel('Hand Count', fontsize=14)
-            plt.title('Player Profit vs. Hand Count', fontsize=16)
-            plt.legend(title="Player", bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
-            plt.grid(True)
-            plt.tight_layout()
-            # Shade the area below y=0 red
-            plt.axhspan(ymin=-plt.ylim()[1], ymax=0, color='red', alpha=0.15)
-    
-stack_info = None
-data = None
+        ui.input_text("text", "Specific Player", value="Chase"),
+        ui.output_ui("conditional_slider")
+    ),
+    # Main panel content with tabs
+    ui.navset_tab(
+        ui.nav_panel(
+            "Player Stacks & Profit",
+            ui.output_plot("plot_stacks_and_profits", width="100%", height="400px")
+        ),
+        ui.nav_panel(
+            "Player Profit",
+            ui.output_plot("plot_profits", width="100%", height="400px")
+        ),
+        ui.nav_panel(
+            "Specific Player",
+            ui.output_plot("plot_player", width="100%", height="400px")
+        )
+    ),
+    title="PokerNow Data Visualizer V0.32",
+    fillable=True,
+)
 
 
-        
-def process_data(data):
+def server(input, output, session):
+    stackinfo = reactive.Value(None)
+    databank = reactive.Value(None)
+
+    def process_data(data):
         # Extracts Player Name to new column
             player_name_regex = r'"(.*?)"'
             data['player_name'] = data['entry'].str.extract(player_name_regex).fillna("").astype('string')
@@ -126,12 +92,10 @@ def process_data(data):
 
             return data
 
-@reactive.Effect
-def get_data():
+    @reactive.Effect
+    def get_data():
         """Load and preprocess the uploaded CSV file."""
         f = req(input.csv_file())
-        global data
-        global stack_info
         data = pd.read_csv(f[0]["datapath"])
 
         data = process_data(data)
@@ -223,14 +187,115 @@ def get_data():
                 stack_info.loc[s, 'Profit'] = (stack_info.loc[s, 'Profit'] - amount)
 
         stack_info['Profit'] = stack_info['Profit'].fillna(0.0).round(2)
+
+        stackinfo.set(stack_info)
+        databank.set(data)
         print("Data loaded and processed.")
 
-
-@render.text
-def slider_val():
-    return f"Slider value: {input.val()}"
+    def get_unique_players(data):
+        si = stackinfo.get()
+        if data is None:
+            return 0
+        return si['player_id'].nunique()
     
+    @render.ui
+    def conditional_slider():
+        df = databank.get()
+        if df is None:
+            return
+        else:
+            # Return a slider input once the data is processed
+            return ui.input_slider("val", "Players", min=0, max= get_unique_players(df), value=10)
+
+    @render.plot
+    def plot_player():
+            stack_info = stackinfo.get()
+            player_name = input.text()
+            if(stack_info is None):
+                fig, ax = plt.subplots()
+                ax.text(0.5, 0.5, "Awaiting Data...", fontsize=16, ha="center", va="center")
+                plt.axis("off")
+                return fig
+            plt.figure(figsize=(10, 6))
+
+            s_info = stack_info.copy(deep=True)
+            filteredSI = s_info[s_info['player_nickname'] == player_name]
+            # Filter for the specified player
+
+            # Check if there is data for the specified player
+            if filteredSI.empty:
+                fig, ax = plt.subplots()
+                ax.text(0.5, 0.5, "No Player with name '"+player_name+"'", fontsize=16, ha="center", va="center")
+                plt.axis("off")
+                return fig
+
+            # Plot the player's data
+            plt.plot(filteredSI['hand_count'], filteredSI['Profit'], marker='o', label=player_name + ' Profit')
+            plt.plot(filteredSI['hand_count'], filteredSI['Stack'], marker='o', label=player_name + ' Stack')
+
+            # Add labels, title, and legend
+            plt.ylabel('Profit', fontsize=14)
+            plt.xlabel('Hand Count', fontsize=14)
+            plt.title(f'{player_name} Stack & Profit vs. Hand Count', fontsize=16)
+            plt.legend(title="Metric", bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+            plt.grid(True)
+            plt.tight_layout()
+
+            # Shade the area below y=0 red
+            plt.axhspan(ymin=-plt.ylim()[1], ymax=0, color='red', alpha=0.15)
+
+    @render.plot
+    def plot_profits():
+            stack_info = stackinfo.get()
+            if(stack_info is None):
+                fig, ax = plt.subplots()
+                ax.text(0.5, 0.5, "Awaiting Data...", fontsize=16, ha="center", va="center")
+                plt.axis("off")
+                return fig
+            plt.figure(figsize=(10, 6))
+            s_info = stack_info.copy(deep=True)
+            amt_to_display = s_info['player_nickname'].unique()[:input.val()]
+            filteredSI = s_info[s_info['player_nickname'].isin(amt_to_display)]
+            # Group by player and plot
+            for player, group in filteredSI.groupby('player_nickname'):
+                plt.plot(group['hand_count'], group['Profit'], marker='o', label=player + ' Profit')
+
+            # Add labels, title, and legend
+            plt.ylabel('Profit', fontsize=14)
+            plt.xlabel('Hand Count', fontsize=14)
+            plt.title('Player Profit vs. Hand Count', fontsize=16)
+            plt.legend(title="Player", bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+            plt.grid(True)
+            plt.tight_layout()
+            # Shade the area below y=0 red
+            plt.axhspan(ymin=-plt.ylim()[1], ymax=0, color='red', alpha=0.15)
+
+    @render.plot
+    def plot_stacks_and_profits():
+            stack_info = stackinfo.get()
+            if(stack_info is None):
+                fig, ax = plt.subplots()
+                ax.text(0.5, 0.5, "Awaiting Data...", fontsize=16, ha="center", va="center")
+                plt.axis("off")
+                return fig
+            plt.figure(figsize=(10, 6))
+            s_info = stack_info.copy(deep=True)
+            amt_to_display = s_info['player_nickname'].unique()[:input.val()]
+            filteredSI = s_info[s_info['player_nickname'].isin(amt_to_display)]
+            # Group by player and plot
+            for player, group in filteredSI.groupby('player_nickname'):
+                plt.plot(group['hand_count'], group['Profit'], marker='o', label=player + ' Profit')
+                plt.plot(group['hand_count'], group['Stack'], marker='o', label=player + ' Stack')
+
+            # Add labels, title, and legend
+            plt.ylabel('Profit', fontsize=14)
+            plt.xlabel('Hand Count', fontsize=14)
+            plt.title('Player Stack & Profit vs. Hand Count', fontsize=16)
+            plt.legend(title="Player", bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+            plt.grid(True)
+            plt.tight_layout()
+            # Shade the area below y=0 red
+            plt.axhspan(ymin=-plt.ylim()[1], ymax=0, color='red', alpha=0.15)
 
 
-
-
+app = App(app_ui, server)

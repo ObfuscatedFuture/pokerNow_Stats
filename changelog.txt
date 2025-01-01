@@ -1,3 +1,7 @@
+Ver 0.32
+ + Moved from Shiny Express to Shiny Core for easier expandability
+ + Added reactive player slider
+
 Ver 0.30
  + Further reduced reliance on ledger file
  + Began Shiny Implementation
