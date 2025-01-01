@@ -1,3 +1,10 @@
+Ver 0.30
+ + Further reduced reliance on ledger file
+ + Began Shiny Implementation
+      + Added basic layout with sidebar and card layout (WIP)
+      + Added base functionality with plots and CSV upload
+      + Added num player slider as proof of concept & reactivity test
+
 Ver 0.25
  + Implemented VPIP
  + Fixed bug that would occur when players rejoined with different names

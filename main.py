@@ -122,7 +122,7 @@ def main(arg):
     stack_rows = stack_history.explode().dropna()
 
     stack_info = pd.DataFrame(
-    stack_rows.tolist(), columns=['Position', 'player_nickname', 'player_id', 'Stack']
+        stack_rows.tolist(), columns=['Position', 'player_nickname', 'player_id', 'Stack']
     )
     stack_info = pd.concat([
         data[['hand_count']].loc[stack_rows.index].reset_index(drop=True),
@@ -134,7 +134,7 @@ def main(arg):
     no_name_changes = stack_info.groupby('player_id')['player_nickname'].first().to_dict()
     stack_info['player_nickname'] = stack_info['player_id'].map(no_name_changes)
 
-    #Normalize IDs when player joins under 2 IDs (Or logs in mid game)*
+    # Normalize IDs when player joins under 2 IDs (Or logs in mid game)*
     remove_dupes = stack_info.groupby('player_nickname')['player_id'].first().to_dict()
     stack_info['player_id'] = stack_info['player_nickname'].map(remove_dupes)
 
@@ -150,7 +150,7 @@ def main(arg):
 
     full_stack = pd.concat([stack_info, fix_stack[['hand_count', 'Position', 'player_nickname', 'player_id', 'Stack']].
                            reindex(stack_info.columns, axis=1, fill_value=None)
-    ])
+                            ])
     full_stack['hand_count'] = full_stack['hand_count'].astype(int)
 
     stack_info = full_stack
@@ -168,20 +168,26 @@ def main(arg):
         action = row['action']
         hand = row['hand_count']
         is_join = False
-        if action=='joins':
+        is_newJoin = False
+        if action == 'joins':
             is_join = True
+
 
         s = (stack_info['hand_count'] > hand) & (stack_info['player_id'] == id)
         # If player rejoins (not first join) this if condition activates
+        # This logic seems to work but is a little sloppy?
         if stack_info[(stack_info['player_id'] == id) & (stack_info['hand_count'] < hand)].shape[0] > 0:
-            is_join = False
+            is_newJoin = False
 
         if is_join:
             stack_info.loc[s, 'Profit'] = stack_info.loc[s, 'Stack'] - amount
+        elif not is_newJoin:
+            stack_info.loc[s, 'Profit'] = (stack_info.loc[s, 'Stack'] - amount) + stack_info.loc[s, 'Profit']
         else:
             stack_info.loc[s, 'Profit'] = (stack_info.loc[s, 'Profit'] - amount)
 
     stack_info['Profit'] = stack_info['Profit'].fillna(0.0).round(2)
+################# ^ Implemented above to Shiny ^ ####################
 
     # Calculates Hands_Played using modified_data instead of ledger file (then appends to ledger)
     # Removing reliance on ledger is a WIP so eventually this should append to a new dataFrame
@@ -200,22 +206,23 @@ def main(arg):
     vpip_df = vpip_df[['player_id', 'hand_count']].drop_duplicates()
 
     result = vpip_df['player_id'].value_counts().to_dict()
-    # print(result)
+
     vpip_df = pd.DataFrame(list(result.items()), columns=['player_id', 'voluntary_put_in_pot'])
+    vpip_df['voluntary_put_in_pot'] = vpip_df['voluntary_put_in_pot'].fillna(0)
 
     ledger = pd.merge(ledger, vpip_df[['player_id', 'voluntary_put_in_pot']], on='player_id', how='left')
     ledger['voluntary_put_in_pot'] = ((ledger['voluntary_put_in_pot']/ledger['Hands_Played'])*100).round(2)
-    # now do division vpip / hands played * 100 to get vpip %
 
-    #WIP to remove reliance on ledger file
-    # remade_ledger = stack_info.groupby('Player', as_index=False).agg({
-    #     'Stack': 'last',
-    #     'Profit': 'last'
-    # })
-
-    # print(remade_ledger.head(2))
-
-
+    remade_ledger = stack_info.groupby('player_id', as_index=False).agg({
+         'Stack': 'last', #This is kinda dumb and not a replacement for buy-in/buy-out
+         'Profit': 'last',
+         'player_nickname': 'last'
+    })
+    remade_ledger = pd.merge(remade_ledger, vpip_df[['player_id', 'voluntary_put_in_pot']], on='player_id', how='left')
+    remade_ledger = pd.merge(remade_ledger, hands_played_df[['player_nickname', 'Hands_Played']], on='player_nickname', how='right')
+    remade_ledger['voluntary_put_in_pot'] = ((remade_ledger['voluntary_put_in_pot']/remade_ledger['Hands_Played'])*100).round(2)
+    remade_ledger['voluntary_put_in_pot'] = remade_ledger['voluntary_put_in_pot'].fillna(0)
+    print(remade_ledger.head(2))
 
     # Displays profit / hand for each player, ordered highest to lowest
     # Creates new column in ledger df to store profit/hand data
@@ -310,10 +317,10 @@ def main(arg):
         # Show the plot
         plt.show()
 
-    plot_stack_and_profit(stack_info, 20)
-    plot_profit(stack_info, 20)
+    #plot_stack_and_profit(stack_info, 20)
+    #plot_profit(stack_info, 20)
 
-    plot_stack_and_profit_for_player(stack_info, 'Tenny2')
+    #plot_stack_and_profit_for_player(stack_info, 'mcc')
 
     data = data.sort_values(by="at")
     stack_info.to_csv('stack_info.csv', index=False)
@@ -323,6 +330,6 @@ def main(arg):
 
 
 if __name__ == '__main__':
-    main('Ver 0.25')
+    main('Ver 0.30')
 
 

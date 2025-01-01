@@ -1,0 +1,23 @@
+{
+    "background.fullscreen": {
+      "useFront": true,
+      "style": {
+        "background-position": "100% 100%",
+        "background-size": "auto",
+        "opacity": 0.8
+      },
+      "styles": [{}, {}, {}],
+      // Local images can be dragged into the browser to quickly get the file protocol address from the address bar
+      "images": ["https://github.com/ThrowSyntaxError/background/blob/main/7.jpeg?raw=true"],
+      "interval": 0,
+      "random": false
+    },
+    "background.sidebar": {
+       "images": 
+       [ "https://storycodesun.github.io/image/assets/image/scenery-copy.png", ], 
+       "opacity": 1,
+      },
+      "background.panel": { 
+        "images": [ "https://storycodesun.github.io/image/assets/image/terminal-copy.png", ], 
+        "opacity": 1, },
+}
