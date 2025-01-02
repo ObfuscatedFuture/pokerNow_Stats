@@ -12,6 +12,19 @@ from shinywidgets import render_widget
 
 from shiny import ui
 
+# PokerNow Data Visualizer
+# Written by Chase LaBarre // Obfuscated Future
+
+# Version 0.35
+ver = "0.35"
+
+ICONS = {
+    "user": fa.icon_svg("user", "regular"),
+    "wallet": fa.icon_svg("wallet"),
+    "currency-dollar": fa.icon_svg("dollar-sign"),
+    "gear": fa.icon_svg("gear")
+}
+
 app_ui = ui.page_sidebar(
     ui.sidebar(
         ui.input_file("csv_file", "Upload CSV", accept=[".csv"]),
@@ -19,6 +32,7 @@ app_ui = ui.page_sidebar(
         ui.output_ui("conditional_slider")
     ),
     # Main panel content with tabs
+    ui.card(
     ui.navset_tab(
         ui.nav_panel(
             "Player Stacks & Profit",
@@ -32,8 +46,26 @@ app_ui = ui.page_sidebar(
             "Specific Player",
             ui.output_plot("plot_player", width="100%", height="400px")
         )
+    )
     ),
-    title="PokerNow Data Visualizer V0.32",
+    ui.card(
+            ui.card_header(
+                "Stack Info",
+                ui.popover(
+                    ICONS["gear"],
+                    ui.input_radio_buttons(
+                        "sort_var", "Sort By:",
+                        ["player_nickname", "vpip", "profit_per_hand", "idk"],
+                        selected="day",
+                        inline=True,
+                    ),
+                    title="Add a color variable",
+                ),
+                class_="d-flex justify-content-between align-items-center",
+            ),
+            ui.output_data_frame("stack_frame"),
+    ),
+    title="PokerNow Data Visualizer V"+ ver,
     fillable=True,
 )
 
@@ -41,8 +73,16 @@ app_ui = ui.page_sidebar(
 def server(input, output, session):
     stackinfo = reactive.Value(None)
     databank = reactive.Value(None)
+    remadeledger = reactive.Value(None)
+    
 
-    def process_data(data):
+    @reactive.Effect
+    def get_data():
+        """Load and preprocess the uploaded CSV file."""
+        f = req(input.csv_file())
+        data = pd.read_csv(f[0]["datapath"])
+
+        def process_data(data):
         # Extracts Player Name to new column
             player_name_regex = r'"(.*?)"'
             data['player_name'] = data['entry'].str.extract(player_name_regex).fillna("").astype('string')
@@ -91,14 +131,9 @@ def server(input, output, session):
             data['amount'] = pd.to_numeric(data['amount'], errors='coerce')
 
             return data
-
-    @reactive.Effect
-    def get_data():
-        """Load and preprocess the uploaded CSV file."""
-        f = req(input.csv_file())
-        data = pd.read_csv(f[0]["datapath"])
-
+        
         data = process_data(data)
+
         def process_stacks(row):
             if row.startswith("Player stacks:"):
                 stacks = row[len("Player stacks:"):].strip()
@@ -190,6 +225,49 @@ def server(input, output, session):
 
         stackinfo.set(stack_info)
         databank.set(data)
+
+        results = []
+        for unique_name in stack_info['player_nickname'].unique():
+            results.append({'player_nickname': unique_name, 'Hands_Played': len(stack_info[stack_info['player_nickname']==unique_name])})
+
+        hands_played_df = pd.DataFrame(results)
+
+        # Isolates necessary data for vpip calculations
+        vpip_df = data[data['action'].isin(['calls', 'raises'])]
+        vpip_df = vpip_df[['player_nickname', 'player_id','amount','action','phase','hand_count']]
+        #Only counts 1x per hand played
+        vpip_df = vpip_df[['player_id', 'hand_count']].drop_duplicates()
+
+        result = vpip_df['player_id'].value_counts().to_dict()
+
+        vpip_df = pd.DataFrame(list(result.items()), columns=['player_id', 'voluntary_put_in_pot'])
+        vpip_df['voluntary_put_in_pot'] = vpip_df['voluntary_put_in_pot'].fillna(0)
+        
+        remade_ledger = stack_info.groupby('player_id', as_index=False).agg({
+            'Stack': 'last', #This is kinda dumb and not a replacement for buy-in/buy-out
+            'Profit': 'last',
+            'player_nickname': 'last'
+        })
+        remade_ledger = pd.merge(remade_ledger, vpip_df[['player_id', 'voluntary_put_in_pot']], on='player_id', how='left')
+        remade_ledger = pd.merge(remade_ledger, hands_played_df[['player_nickname', 'Hands_Played']], on='player_nickname', how='right')
+        remade_ledger['voluntary_put_in_pot'] = ((remade_ledger['voluntary_put_in_pot']/remade_ledger['Hands_Played'])*100).round(2)
+        remade_ledger['voluntary_put_in_pot'] = remade_ledger['voluntary_put_in_pot'].fillna(0)
+        remade_ledger['voluntary_put_in_pot'] = remade_ledger['voluntary_put_in_pot'].apply(lambda x: f"{x:.1f}%")
+
+        remade_ledger = remade_ledger[['player_nickname', 'player_id', 'Stack', 'Profit', 'voluntary_put_in_pot', 'Hands_Played']]
+
+        def profit_per_hand(ledger):
+            profit_hand = ledger.loc[:, ['player_id', 'Profit', 'player_nickname', 'Hands_Played']]
+            profit_hand.loc[:, 'profit_per_hand'] = ((profit_hand['Profit'] / profit_hand['Hands_Played'])).round(3)
+            profit_hand = profit_hand.sort_values(by='profit_per_hand', ascending=False)
+            profit_hand = profit_hand.reset_index(drop=True)
+            ledger = pd.merge(ledger, profit_hand[['player_id', 'profit_per_hand']], on='player_id', how='left')
+            ledger['profit_per_hand'] = ledger['profit_per_hand'].apply(lambda x: f"${x:.1f}")
+            return ledger
+
+        remade_ledger = profit_per_hand(remade_ledger)
+        remadeledger.set(remade_ledger)
+
         print("Data loaded and processed.")
 
     def get_unique_players(data):
@@ -197,6 +275,11 @@ def server(input, output, session):
         if data is None:
             return 0
         return si['player_id'].nunique()
+    
+    @render.data_frame
+    def stack_frame():
+        f = req(input.csv_file())
+        return render.DataGrid(remadeledger.get())
     
     @render.ui
     def conditional_slider():

@@ -1,3 +1,9 @@
+Ver 0.35
+ + Migrated more code to Shiny Dashboard
+ + Dashboard now supports VPIP and Profit/Hand
+ + Integrated basic remade_ledger into Dashboard "Stack Info"
+ 
+
 Ver 0.32
  + Moved from Shiny Express to Shiny Core for easier expandability
  + Added reactive player slider
