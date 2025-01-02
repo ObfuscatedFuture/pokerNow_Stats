@@ -13,7 +13,7 @@ from shinywidgets import render_widget
 from shiny import ui
 
 # PokerNow Data Visualizer
-# Written by Chase LaBarre // Obfuscated Future
+# Written by Chase LaBarre // Obfuscated Futur
 
 # Version 0.35
 ver = "0.35"
