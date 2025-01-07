@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 def main(arg):
     print(f"{arg}")
     print(f"Created By : CodeSlug")
-    full_log = "testFiles/poker_now_log_pglrqTDi9-nBInG5U2wGN-Tbh (1).csv"
+    full_log = "/Users/chase/Downloads/poker_now_log_pgl2UI_Dpx5U_DuQSaRPKRq8u.csv"
     ledger = "testFiles/ledger_pglrqTDi9-nBInG5U2wGN-Tbh.csv"
 
     data = pd.read_csv(full_log)
@@ -33,8 +33,8 @@ def main(arg):
         data['player_nickname'] = data['player_id'].map(no_name_changes)
 
         # Extracts amount of bet / stack to new column
-        amount_regex = r'(\d+\.\d{2})'
-        data['amount'] = data['entry'].str.extract(amount_regex).fillna('')
+        amount_regex = r'(\b\d+(\.\d+)?\b)'
+        data['amount'] = data['entry'].str.extract(amount_regex)[0].fillna('')
 
         # Formats the action column
         action_pattern = r"\b(calls|folds|raises|bets|checks|shows|collected|returned|posts|starting hand|ending hand|stand up|quits the game|change|participation| stacks: #1)\b"
@@ -88,6 +88,7 @@ def main(arg):
         return combined_players
 
     data = process_data(data)
+    
     ledger = process_ledger(ledger)
 
      # TODO add time played column to modified_ledger.csv
@@ -171,6 +172,7 @@ def main(arg):
         is_newJoin = False
         if action == 'joins':
             is_join = True
+            is_newJoin = True
 
 
         s = (stack_info['hand_count'] > hand) & (stack_info['player_id'] == id)
@@ -178,16 +180,31 @@ def main(arg):
         # This logic seems to work but is a little sloppy?
         if stack_info[(stack_info['player_id'] == id) & (stack_info['hand_count'] < hand)].shape[0] > 0:
             is_newJoin = False
+            
 
-        if is_join:
+        if is_newJoin:
             stack_info.loc[s, 'Profit'] = stack_info.loc[s, 'Stack'] - amount
-        elif not is_newJoin:
-            stack_info.loc[s, 'Profit'] = (stack_info.loc[s, 'Stack'] - amount) + stack_info.loc[s, 'Profit']
-        else:
+            print(f"Player {id} joins at hand {hand}")
+        elif is_join:
+            stack_info.loc[s, 'Profit'] = (stack_info.loc[s, 'Profit'] - amount)
+            print(f"Player {id} rejoins at hand {hand}")
+        else: # change
             stack_info.loc[s, 'Profit'] = (stack_info.loc[s, 'Profit'] - amount)
 
     stack_info['Profit'] = stack_info['Profit'].fillna(0.0).round(2)
 ################# ^ Implemented above to Shiny ^ ####################
+
+    # BUG SCENARIOS:
+    #
+    # "WARNING: the admin queued the stack change for the player ""Solstice @ VE6CjkevP7"" removing 525 chips in the next hand.",2025-01-06 23:43:47.239000+00:00,173620702723900,Solstice @ VE6CjkevP7,Solstice,VE6CjkevP7,525.0,change,Turn,274
+    # "WARNING: the admin queued the stack change for the player ""DPolkPN @ IaIW3olpE5"" adding 72 chips in the next hand.",2025-01-06 23:43:50.400000+00:00,173620703040000,DPolkPN @ IaIW3olpE5,DPolkPN,IaIW3olpE5,72.0,change,Turn,274
+    # "WARNING: the admin queued the stack change for the player ""DPolkPN @ IaIW3olpE5"" adding 75 chips in the next hand.",2025-01-06 23:43:54.874000+00:00,173620703487400,DPolkPN @ IaIW3olpE5,DPolkPN,IaIW3olpE5,75.0,change,Turn,274
+    # ^ Does not account for sign changes (removing vs adding)
+
+    # "The admin updated the player ""Solstice @ VE6CjkevP7"" stack from 2612 to 2087.",2025-01-06 23:44:05.776000+00:00,173620704577600,Solstice @ VE6CjkevP7,Solstice,VE6CjkevP7,2612.0,,Turn,274
+    # "The admin updated the player ""DPolkPN @ IaIW3olpE5"" stack from 2447 to 2522.",2025-01-06 23:44:05.776000+00:00,173620704577601,DPolkPN @ IaIW3olpE5,DPolkPN,IaIW3olpE5,2447.0,,Turn,274
+    # ^ Does not handle this situation at all
+
 
     # Calculates Hands_Played using modified_data instead of ledger file (then appends to ledger)
     # Removing reliance on ledger is a WIP so eventually this should append to a new dataFrame

@@ -1,3 +1,9 @@
+Ver 0.36
+ + Made player name entry conditional
+ + Added more comments
+ + Fixed a bug where regex wouldnt match numbers in highers stakes games
+ + Fixed a bug that occasionally double counted profits in certain situations
+
 Ver 0.35
  + Migrated more code to Shiny Dashboard
  + Dashboard now supports VPIP and Profit/Hand

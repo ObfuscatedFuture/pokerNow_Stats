@@ -1,23 +1,19 @@
 import faicons as fa
-import plotly.express as px
+
 import pandas as pd
 import re
-import numpy as np
-from dateutil import parser
+
 import matplotlib.pyplot as plt
 
 from shiny import App, ui, reactive, render, req
-from shinywidgets import render_plotly
-from shinywidgets import render_widget
-
-from shiny import ui
 
 # PokerNow Data Visualizer
-# Written by Chase LaBarre // Obfuscated Futur
+# Written by Chase LaBarre // Obfuscated Future
 
-# Version 0.35
-ver = "0.35"
+# Version 0.36
+ver = "0.36"
 
+# Icons (Some arent being used rn)
 ICONS = {
     "user": fa.icon_svg("user", "regular"),
     "wallet": fa.icon_svg("wallet"),
@@ -28,7 +24,7 @@ ICONS = {
 app_ui = ui.page_sidebar(
     ui.sidebar(
         ui.input_file("csv_file", "Upload CSV", accept=[".csv"]),
-        ui.input_text("text", "Specific Player", value="Chase"),
+        # Place holder for the conditional ui elements
         ui.output_ui("conditional_slider")
     ),
     # Main panel content with tabs
@@ -71,6 +67,7 @@ app_ui = ui.page_sidebar(
 
 
 def server(input, output, session):
+    # Reactive values (Allow 'reactive' updating of page elements)
     stackinfo = reactive.Value(None)
     databank = reactive.Value(None)
     remadeledger = reactive.Value(None)
@@ -82,6 +79,9 @@ def server(input, output, session):
         f = req(input.csv_file())
         data = pd.read_csv(f[0]["datapath"])
 
+        # Nested method to process data dataframe
+        # Contains hand by hand action, player names, amounts, and hand phase
+        # Essentially a master dataframe for more specific dataframes
         def process_data(data):
         # Extracts Player Name to new column
             player_name_regex = r'"(.*?)"'
@@ -100,8 +100,8 @@ def server(input, output, session):
             data['player_nickname'] = data['player_id'].map(no_name_changes)
 
             # Extracts amount of bet / stack to new column
-            amount_regex = r'(\d+\.\d{2})'
-            data['amount'] = data['entry'].str.extract(amount_regex).fillna('')
+            amount_regex = r'(\b\d+(\.\d+)?\b)'
+            data['amount'] = data['entry'].str.extract(amount_regex)[0].fillna('')
 
             # Formats the action column
             action_pattern = r"\b(calls|folds|raises|bets|checks|shows|collected|returned|posts|starting hand|ending hand|stand up|quits the game|change|participation| stacks: #1)\b"
@@ -134,6 +134,8 @@ def server(input, output, session):
         
         data = process_data(data)
 
+        # Nested method to process stack info from data dataframe
+        # Contains information displayed in the stack info table
         def process_stacks(row):
             if row.startswith("Player stacks:"):
                 stacks = row[len("Player stacks:"):].strip()
@@ -197,6 +199,7 @@ def server(input, output, session):
         df_join = data[data['action'].isin(['joins', 'change'])]
         df_join = df_join[['player_id', 'amount', 'hand_count', 'action']]
 
+        # Profit and Stack logic (fragile and finicky lol)
         for index, row in df_join.iterrows():
             id = row['player_id']
             amount = row['amount']
@@ -206,6 +209,7 @@ def server(input, output, session):
             is_newJoin = False
             if action == 'joins':
                 is_join = True
+                is_newJoin = True
 
 
             s = (stack_info['hand_count'] > hand) & (stack_info['player_id'] == id)
@@ -213,16 +217,20 @@ def server(input, output, session):
             # This logic seems to work but is a little sloppy?
             if stack_info[(stack_info['player_id'] == id) & (stack_info['hand_count'] < hand)].shape[0] > 0:
                 is_newJoin = False
+                
 
-            if is_join:
+            if is_newJoin:
                 stack_info.loc[s, 'Profit'] = stack_info.loc[s, 'Stack'] - amount
-            elif not is_newJoin:
-                stack_info.loc[s, 'Profit'] = (stack_info.loc[s, 'Stack'] - amount) + stack_info.loc[s, 'Profit']
-            else:
+                print(f"Player {id} joins at hand {hand}")
+            elif is_join:
+                stack_info.loc[s, 'Profit'] = (stack_info.loc[s, 'Profit'] - amount)
+                print(f"Player {id} rejoins at hand {hand}")
+            else: # change
                 stack_info.loc[s, 'Profit'] = (stack_info.loc[s, 'Profit'] - amount)
 
         stack_info['Profit'] = stack_info['Profit'].fillna(0.0).round(2)
 
+        # Sets reactive values (Also triggers some reactive elements?)
         stackinfo.set(stack_info)
         databank.set(data)
 
@@ -235,6 +243,7 @@ def server(input, output, session):
         # Isolates necessary data for vpip calculations
         vpip_df = data[data['action'].isin(['calls', 'raises'])]
         vpip_df = vpip_df[['player_nickname', 'player_id','amount','action','phase','hand_count']]
+
         #Only counts 1x per hand played
         vpip_df = vpip_df[['player_id', 'hand_count']].drop_duplicates()
 
@@ -243,6 +252,7 @@ def server(input, output, session):
         vpip_df = pd.DataFrame(list(result.items()), columns=['player_id', 'voluntary_put_in_pot'])
         vpip_df['voluntary_put_in_pot'] = vpip_df['voluntary_put_in_pot'].fillna(0)
         
+        # WIP replacement for ledger file while maintaining similar information
         remade_ledger = stack_info.groupby('player_id', as_index=False).agg({
             'Stack': 'last', #This is kinda dumb and not a replacement for buy-in/buy-out
             'Profit': 'last',
@@ -256,6 +266,7 @@ def server(input, output, session):
 
         remade_ledger = remade_ledger[['player_nickname', 'player_id', 'Stack', 'Profit', 'voluntary_put_in_pot', 'Hands_Played']]
 
+        # Profit per hand logic
         def profit_per_hand(ledger):
             profit_hand = ledger.loc[:, ['player_id', 'Profit', 'player_nickname', 'Hands_Played']]
             profit_hand.loc[:, 'profit_per_hand'] = ((profit_hand['Profit'] / profit_hand['Hands_Played'])).round(3)
@@ -270,17 +281,20 @@ def server(input, output, session):
 
         print("Data loaded and processed.")
 
+    # Used in conditional slider
     def get_unique_players(data):
         si = stackinfo.get()
         if data is None:
             return 0
         return si['player_id'].nunique()
     
+    # Renders stackinfo dataframe as table
     @render.data_frame
     def stack_frame():
         f = req(input.csv_file())
         return render.DataGrid(remadeledger.get())
     
+    # Conditional slider and text field once csv file is uploaded
     @render.ui
     def conditional_slider():
         df = databank.get()
@@ -288,8 +302,9 @@ def server(input, output, session):
             return
         else:
             # Return a slider input once the data is processed
-            return ui.input_slider("val", "Players", min=0, max= get_unique_players(df), value=10)
+            return ui.input_slider("val", "Players", min=0, max= get_unique_players(df), value=10), ui.input_text("text", "Specific Player", value="")
 
+    # Plotting functions
     @render.plot
     def plot_player():
             stack_info = stackinfo.get()
