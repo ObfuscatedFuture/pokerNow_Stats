@@ -6,12 +6,13 @@ import re
 import matplotlib.pyplot as plt
 
 from shiny import App, ui, reactive, render, req
+import shinyswatch
 
 # PokerNow Data Visualizer
 # Written by Chase LaBarre // Obfuscated Future
 
-# Version 0.36
-ver = "0.36"
+# Version 0.37
+ver = "0.37"
 
 # Icons (Some arent being used rn)
 ICONS = {
@@ -22,27 +23,27 @@ ICONS = {
 }
 
 app_ui = ui.page_sidebar(
-    ui.sidebar(
-        ui.input_file("csv_file", "Upload CSV", accept=[".csv"]),
-        # Place holder for the conditional ui elements
-        ui.output_ui("conditional_slider")
-    ),
+        ui.sidebar(
+            ui.input_file("csv_file", "Upload CSV", accept=[".csv"]),
+            # Place holder for the conditional ui elements
+            ui.output_ui("conditional_slider")
+        ),
     # Main panel content with tabs
     ui.card(
-    ui.navset_tab(
-        ui.nav_panel(
-            "Player Stacks & Profit",
-            ui.output_plot("plot_stacks_and_profits", width="100%", height="400px")
+        ui.navset_tab(
+            ui.nav_panel(
+                "Player Stacks & Profit",
+                ui.output_plot("plot_stacks_and_profits", width="100%", height="400px")
+            ),
+            ui.nav_panel(
+                "Player Profit",
+                ui.output_plot("plot_profits", width="100%", height="400px")
+            ),
+            ui.nav_panel(
+                "Specific Player",
+                ui.output_plot("plot_player", width="100%", height="400px")
+            )
         ),
-        ui.nav_panel(
-            "Player Profit",
-            ui.output_plot("plot_profits", width="100%", height="400px")
-        ),
-        ui.nav_panel(
-            "Specific Player",
-            ui.output_plot("plot_player", width="100%", height="400px")
-        )
-    )
     ),
     ui.card(
             ui.card_header(
@@ -63,7 +64,8 @@ app_ui = ui.page_sidebar(
     ),
     title="PokerNow Data Visualizer V"+ ver,
     fillable=True,
-)
+    theme=shinyswatch.theme.darkly,
+    )
 
 
 def server(input, output, session):
@@ -130,6 +132,11 @@ def server(input, output, session):
             data['at'] = pd.to_datetime(data['at'])
             data['amount'] = pd.to_numeric(data['amount'], errors='coerce')
 
+            # Accounts for when admin removes chips during change action
+            data.loc[
+            (data['action'] == 'change') & data['entry'].str.contains(r'\bremoving\b', case=False, regex=True),
+            'amount'] *= -1
+
             return data
         
         data = process_data(data)
@@ -193,7 +200,7 @@ def server(input, output, session):
         stack_info = full_stack
         # Sorting for profit col logic
         data = data.sort_values(by='at', ascending=True)
-        stack_info = stack_info.sort_values(by='hand_count', ascending=True)
+        stack_info = stack_info.sort_values(by=['hand_count', 'Position'], ascending=[True, False])
 
         # Currently if a player leaves and rejoins for more (or less) the stat tracker breaks
         df_join = data[data['action'].isin(['joins', 'change'])]
@@ -221,10 +228,8 @@ def server(input, output, session):
 
             if is_newJoin:
                 stack_info.loc[s, 'Profit'] = stack_info.loc[s, 'Stack'] - amount
-                print(f"Player {id} joins at hand {hand}")
             elif is_join:
                 stack_info.loc[s, 'Profit'] = (stack_info.loc[s, 'Profit'] - amount)
-                print(f"Player {id} rejoins at hand {hand}")
             else: # change
                 stack_info.loc[s, 'Profit'] = (stack_info.loc[s, 'Profit'] - amount)
 

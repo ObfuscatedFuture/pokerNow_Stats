@@ -63,6 +63,10 @@ def main(arg):
         data['at'] = pd.to_datetime(data['at'])
         data['amount'] = pd.to_numeric(data['amount'], errors='coerce')
 
+        data.loc[
+        (data['action'] == 'change') & data['entry'].str.contains(r'\bremoving\b', case=False, regex=True),
+        'amount'] *= -1
+
         return data
 
     def process_ledger(ledger):
@@ -157,7 +161,7 @@ def main(arg):
     stack_info = full_stack
     # Sorting for profit col logic
     data = data.sort_values(by='at', ascending=True)
-    stack_info = stack_info.sort_values(by='hand_count', ascending=True)
+    stack_info = stack_info.sort_values(by=['hand_count', 'Position'], ascending=[True, False])
 
     # Currently if a player leaves and rejoins for more (or less) the stat tracker breaks
     df_join = data[data['action'].isin(['joins', 'change'])]

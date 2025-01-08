@@ -1,3 +1,8 @@
+Ver 0.37
+ + Fixed a bug where a player leaving on the last hand would not be counted
+      - Final hand winner is still not counted (BUG)
+ + Added Shinyswatch darkly theme
+
 Ver 0.36
  + Made player name entry conditional
  + Added more comments
