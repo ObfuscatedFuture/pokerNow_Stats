@@ -18,7 +18,6 @@ executing==2.1.0
 faicons==0.2.2
 filelock==3.12.2
 fonttools==4.55.3
-gradescope==0.1.2
 h11==0.14.0
 htmltools==0.6.0
 idna==3.4
@@ -70,7 +69,7 @@ shodan==1.30.0
 six==1.16.0
 sniffio==1.3.1
 soupsieve==2.6
-sqlmap==1.7.9
+sqlmap==1.9.2
 stack-data==0.6.3
 starlette==0.45.0
 statsmodels==0.14.4
